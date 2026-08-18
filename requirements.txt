@@ -1,0 +1,8 @@
+# Runtime dependencies for the monitoring agent.
+# Kept intentionally small — this runs on production/critical servers.
+psutil>=5.9
+requests>=2.28
+
+# Windows-only: register/run as a native Windows Service and query WMI.
+# The marker means pip silently skips it on Linux.
+pywin32>=306; sys_platform == "win32"

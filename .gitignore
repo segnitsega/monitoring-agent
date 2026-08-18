@@ -1,0 +1,34 @@
+# Internal build specification — not shipped in the repository
+AGENT_SPEC.md
+
+# Byte-compiled / optimized / cache
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# PyInstaller build output
+build/
+dist/
+
+# Local runtime artifacts
+*.log
+*.sqlite
+*.sqlite3
+retry_queue.db
+
+# Real per-server agent config — contains the auth token, never commit it
+config.json
+
+# OS / editor cruft
+.DS_Store
+.idea/
+.vscode/

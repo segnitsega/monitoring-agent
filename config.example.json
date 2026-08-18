@@ -1,0 +1,19 @@
+{
+  "serverId": "srv-1029",
+  "token": "REPLACE_WITH_PER_SERVER_TOKEN_ISSUED_AT_REGISTRATION",
+  "backendUrl": "https://portal.example.com",
+  "intervalSeconds": 60,
+  "timeoutSeconds": 10,
+  "diskPaths": ["/"],
+  "retryRetentionHours": 24,
+  "queuePath": "/var/lib/monitoring-agent/retry_queue.db",
+  "logFile": "/var/log/monitoring-agent/agent.log",
+  "logLevel": "INFO",
+  "backup": {
+    "checker": "generic_path",
+    "options": {
+      "path": "/backups/db-prod-02",
+      "freshnessHours": 26
+    }
+  }
+}
