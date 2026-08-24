@@ -38,7 +38,7 @@ if (-not (Test-Path $configFile)) {
     # Restrict the config (it holds a token) to Administrators + SYSTEM.
     icacls $configFile /inheritance:r /grant:r "Administrators:F" "SYSTEM:F" | Out-Null
     Write-Host "   Wrote example config to $configFile"
-    Write-Warning "   EDIT $configFile and set serverId, token and backendUrl before starting."
+    Write-Warning "   EDIT $configFile: set hostname (inventory ipOrHostname), registerSecret, and backendUrl."
 } else {
     Write-Host "   Existing $configFile left in place."
 }
@@ -56,7 +56,7 @@ Write-Host ">> Starting service"
 try {
     & $installedService start
 } catch {
-    Write-Warning "Service registered but failed to start — likely config.json still has placeholder values."
+    Write-Warning "Service registered but failed to start — likely config.json still has placeholder values (registerSecret / backendUrl / hostname)."
     Write-Warning "Edit $configFile then run: Restart-Service MonitoringAgent"
 }
 

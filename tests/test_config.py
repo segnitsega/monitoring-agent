@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from agent.config import AgentConfig, ConfigError, load_config, parse_config
+from agent.config import AgentConfig, ConfigError, load_config, parse_config, persist_credentials
 
 VALID = {
     "serverId": "srv-1029",
@@ -35,14 +35,47 @@ def test_missing_required_fields_raise_and_list_all() -> None:
     with pytest.raises(ConfigError) as exc:
         parse_config({})
     message = str(exc.value)
-    assert "serverId" in message
-    assert "token" in message
     assert "backendUrl" in message
+    assert "token" in message
+    assert "registerSecret" in message
 
 
-def test_placeholder_token_is_rejected() -> None:
-    with pytest.raises(ConfigError, match="placeholder"):
+def test_placeholder_token_is_treated_as_missing() -> None:
+    with pytest.raises(ConfigError, match="registerSecret"):
         parse_config({**VALID, "token": "REPLACE_WITH_PER_SERVER_TOKEN"})
+
+
+def test_missing_token_ok_when_register_secret_present() -> None:
+    cfg = parse_config(
+        {
+            "backendUrl": "https://portal.example.com",
+            "registerSecret": "shared-secret",
+            "hostname": "finance-app.internal.local",
+        }
+    )
+    assert cfg.needs_registration is True
+    assert cfg.token == ""
+    assert cfg.server_id == ""
+    assert cfg.register_secret == "shared-secret"
+    assert cfg.hostname == "finance-app.internal.local"
+    assert cfg.register_endpoint == "https://portal.example.com/api/v1/agent/register"
+
+
+def test_placeholder_token_plus_register_secret_registers() -> None:
+    cfg = parse_config(
+        {
+            "backendUrl": "https://portal.example.com",
+            "token": "REPLACE_WITH_PER_SERVER_TOKEN_ISSUED_AT_REGISTRATION",
+            "registerSecret": "shared-secret",
+        }
+    )
+    assert cfg.needs_registration is True
+    assert cfg.token == ""
+
+
+def test_token_without_server_id_rejected() -> None:
+    with pytest.raises(ConfigError, match="serverId"):
+        parse_config({"backendUrl": "https://portal.example.com", "token": "real-token"})
 
 
 def test_non_http_backend_url_rejected() -> None:
@@ -90,3 +123,31 @@ def test_load_invalid_json_raises(tmp_path) -> None:
     path.write_text("{not json", encoding="utf-8")
     with pytest.raises(ConfigError, match="not valid JSON"):
         load_config(path)
+
+
+def test_persist_credentials_updates_file_and_keeps_other_keys(tmp_path) -> None:
+    path = tmp_path / "config.json"
+    path.write_text(
+        json.dumps(
+            {
+                "backendUrl": "https://portal.example.com",
+                "registerSecret": "shared-secret",
+                "hostname": "host.example",
+                "logLevel": "DEBUG",
+            }
+        ),
+        encoding="utf-8",
+    )
+    persist_credentials(
+        path,
+        server_id="uuid-1",
+        token="issued-token",
+        interval_seconds=45,
+        hostname="host.example",
+    )
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    assert raw["serverId"] == "uuid-1"
+    assert raw["token"] == "issued-token"
+    assert raw["intervalSeconds"] == 45
+    assert raw["registerSecret"] == "shared-secret"
+    assert raw["logLevel"] == "DEBUG"

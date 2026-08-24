@@ -1,16 +1,18 @@
 """Load and validate the agent's on-disk configuration (``config.json``).
 
-The config file is the only place the raw per-server token lives. It is expected
-to be created at install time with restricted permissions (``chmod 600`` on
-Linux, ACL-restricted on Windows). This module never logs the token itself.
+The config file holds the shared registration secret (until a per-server token
+is issued) and then the raw per-server token. It is expected to be created at
+install time with restricted permissions (``chmod 600`` on Linux, ACL-restricted
+on Windows). This module never logs the token or the registration secret.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import platform
 import stat
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +27,11 @@ _PLACEHOLDER_TOKENS = {
     "",
     "REPLACE_WITH_PER_SERVER_TOKEN_ISSUED_AT_REGISTRATION",
     "REPLACE_WITH_PER_SERVER_TOKEN",
+}
+_PLACEHOLDER_SECRETS = {
+    "",
+    "REPLACE_WITH_SHARED_AGENT_REGISTER_SECRET",
+    "REPLACE_WITH_AGENT_REGISTER_SECRET",
 }
 
 
@@ -59,17 +66,55 @@ class AgentConfig:
     log_file: str | None = None
     log_level: str = DEFAULT_LOG_LEVEL
     backup: BackupConfig | None = None
+    hostname: str = ""
+    register_secret: str = ""
 
     @property
     def health_endpoint(self) -> str:
         """Full ingestion URL derived from the configured base URL."""
         return self.backend_url.rstrip("/") + "/api/v1/health"
 
+    @property
+    def register_endpoint(self) -> str:
+        """Bootstrap URL used when this host has no per-server token yet."""
+        return self.backend_url.rstrip("/") + "/api/v1/agent/register"
+
+    @property
+    def needs_registration(self) -> bool:
+        """True when the agent must call ``/api/v1/agent/register`` before ingest."""
+        return not self.token
+
+    def with_credentials(
+        self,
+        *,
+        server_id: str,
+        token: str,
+        interval_seconds: int | None = None,
+        hostname: str | None = None,
+    ) -> AgentConfig:
+        """Return a copy with the credentials issued at registration."""
+        updates: dict[str, Any] = {"server_id": server_id, "token": token}
+        if interval_seconds is not None:
+            updates["interval_seconds"] = int(interval_seconds)
+        if hostname:
+            updates["hostname"] = hostname
+        return replace(self, **updates)
+
 
 def _require_str(raw: dict[str, Any], key: str, errors: list[str]) -> str:
     value = raw.get(key)
     if not isinstance(value, str) or not value.strip():
         errors.append(f"'{key}' is required and must be a non-empty string")
+        return ""
+    return value.strip()
+
+
+def _optional_str(raw: dict[str, Any], key: str, errors: list[str]) -> str:
+    if key not in raw or raw[key] is None:
+        return ""
+    value = raw[key]
+    if not isinstance(value, str):
+        errors.append(f"'{key}' must be a string")
         return ""
     return value.strip()
 
@@ -118,14 +163,25 @@ def parse_config(raw: dict[str, Any]) -> AgentConfig:
 
     errors: list[str] = []
 
-    server_id = _require_str(raw, "serverId", errors)
-    token = _require_str(raw, "token", errors)
     backend_url = _require_str(raw, "backendUrl", errors)
+    token = _optional_str(raw, "token", errors)
+    if token in _PLACEHOLDER_TOKENS:
+        token = ""
+    server_id = _optional_str(raw, "serverId", errors)
+    hostname = _optional_str(raw, "hostname", errors)
+    register_secret = _optional_str(raw, "registerSecret", errors)
+    if register_secret in _PLACEHOLDER_SECRETS:
+        register_secret = ""
 
     if backend_url and not backend_url.startswith(("http://", "https://")):
         errors.append("'backendUrl' must start with http:// or https://")
-    if token in _PLACEHOLDER_TOKENS:
-        errors.append("'token' is still the placeholder value — provision a real token")
+    if token and not server_id:
+        errors.append("'serverId' is required when 'token' is set")
+    if not token and not register_secret:
+        errors.append(
+            "'token' is missing — set a per-server token, or set 'registerSecret' "
+            "so the agent can register on first start"
+        )
 
     interval = _optional_number(raw, "intervalSeconds", DEFAULT_INTERVAL_SECONDS, errors, minimum=1)
     timeout = _optional_number(raw, "timeoutSeconds", DEFAULT_TIMEOUT_SECONDS, errors, minimum=1)
@@ -172,6 +228,8 @@ def parse_config(raw: dict[str, Any]) -> AgentConfig:
         log_file=log_file,
         log_level=log_level.upper(),
         backup=backup,
+        hostname=hostname,
+        register_secret=register_secret,
     )
 
 
@@ -191,6 +249,46 @@ def load_config(path: str | Path) -> AgentConfig:
         raise ConfigError(f"config file {p} is not valid JSON: {exc}") from exc
 
     return parse_config(raw)
+
+
+def persist_credentials(
+    path: str | Path,
+    *,
+    server_id: str,
+    token: str,
+    interval_seconds: int | None = None,
+    hostname: str | None = None,
+) -> None:
+    """Write issued ``serverId`` / ``token`` back to ``config.json`` without logging them."""
+    p = Path(path)
+    try:
+        raw = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ConfigError(f"could not update config file {p}: {exc}") from exc
+    if not isinstance(raw, dict):
+        raise ConfigError(f"config file {p} is not a JSON object")
+
+    raw["serverId"] = server_id
+    raw["token"] = token
+    if interval_seconds is not None:
+        raw["intervalSeconds"] = int(interval_seconds)
+    if hostname:
+        raw["hostname"] = hostname
+
+    tmp = p.parent / f".{p.name}.tmp"
+    try:
+        tmp.write_text(json.dumps(raw, indent=2) + "\n", encoding="utf-8")
+        try:
+            os.chmod(tmp, stat.S_IMODE(p.stat().st_mode))
+        except OSError:
+            pass
+        os.replace(tmp, p)
+    except OSError as exc:
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise ConfigError(f"could not write credentials to {p}: {exc}") from exc
 
 
 def is_permission_secure(path: str | Path) -> bool:

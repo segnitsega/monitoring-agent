@@ -198,7 +198,7 @@ Ship the resulting binary (and, on Windows, `monitoring-agent-service.exe`) to t
 
 ```bash
 sudo ./install_linux.sh ./dist/monitoring-agent
-sudo nano /etc/monitoring-agent/config.json     # set serverId, token, backendUrl (+ backup checker)
+sudo nano /etc/monitoring-agent/config.json     # set hostname, registerSecret, backendUrl
 sudo systemctl restart monitoring-agent
 journalctl -u monitoring-agent -f               # watch it run
 ```
@@ -217,7 +217,7 @@ What the installer does:
 ```powershell
 # From an elevated PowerShell:
 .\install_windows.ps1 -DistDir .\dist
-notepad $env:ProgramData\MonitoringAgent\config.json   # set serverId, token, backendUrl
+notepad $env:ProgramData\MonitoringAgent\config.json   # set hostname, registerSecret, backendUrl
 Restart-Service MonitoringAgent
 Get-Service MonitoringAgent
 ```
@@ -232,8 +232,10 @@ Logs go to the Windows Application Event Log (source `MonitoringAgent`) unless y
 
 ### 6.3 Config you must fill in (minimum)
 
-`serverId`, `token`, and `backendUrl` are **required**; everything else has a
-sensible default. Validate a config without starting the service:
+`backendUrl` is required. If `token` is empty, `registerSecret` and a
+`hostname` that matches inventory `ipOrHostname` are required — the agent
+registers on first start and writes `serverId` / `token` into the file.
+Validate a config without starting the service:
 
 ```bash
 monitoring-agent --config /etc/monitoring-agent/config.json --check-config
@@ -308,6 +310,7 @@ monitoring-agent/
 │   ├── transport/
 │   │   ├── __init__.py
 │   │   ├── sender.py             # ★ HTTPS POST + Bearer auth + response→outcome classification
+│   │   ├── register.py           # ★ first-run POST /api/v1/agent/register → persist token
 │   │   └── retry_queue.py        # ★ SQLite offline buffer (FIFO, 24h retention, survives reboots)
 │   └── service/
 │       ├── __init__.py
@@ -320,6 +323,7 @@ monitoring-agent/
 │   ├── test_backup.py            #   each backup checker
 │   ├── test_payload.py           #   contract shape
 │   ├── test_sender.py            #   HTTP outcome classification
+│   ├── test_register.py          #   bootstrap register + persist
 │   ├── test_retry_queue.py       #   enqueue/peek/purge/retention
 │   ├── test_main.py              #   loop deliver/buffer/flush policy
 │   ├── test_service_linux.py     #   systemd unit rendering
@@ -355,9 +359,11 @@ Full reference is in `README.md`; the essentials:
 
 | Key | Required | Default | Purpose |
 |---|---|---|---|
-| `serverId` | ✅ | — | Stable server identifier (matches the portal's inventory). |
-| `token` | ✅ | — | Per-server bearer token issued at registration. |
-| `backendUrl` | ✅ | — | Base URL; `/api/v1/health` is appended. |
+| `backendUrl` | ✅ | — | Base URL; `/api/v1/health` (and register) are appended. |
+| `hostname` | if no token | OS hostname | Must match inventory `ipOrHostname`. |
+| `registerSecret` | if no token | — | Shared secret for `POST /api/v1/agent/register`. |
+| `serverId` | with token | issued | Stable server UUID from the portal. |
+| `token` | or register | issued | Per-server bearer token. Empty → register on start. |
 | `intervalSeconds` | | `60` | Seconds between collection cycles. |
 | `timeoutSeconds` | | `10` | HTTP request timeout. |
 | `diskPaths` | | `["/"]` / `["C:\\"]` | Mounts/drives to report (one `disk[]` entry each). |
@@ -368,7 +374,7 @@ Full reference is in `README.md`; the essentials:
 | `backup` | | `null` | `{ "checker": <name>, "options": {…} }`; `null` = no backup check. |
 
 Config validation reports **all** problems at once (so you fix the file in one
-pass) and refuses to start on the placeholder token.
+pass) and refuses to start without either a token or a registration secret.
 
 ---
 

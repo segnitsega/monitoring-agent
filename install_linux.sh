@@ -38,7 +38,8 @@ mkdir -p "$CONF_DIR"
 if [[ ! -f "$CONF_FILE" ]]; then
     install -m 0600 ./config.example.json "$CONF_FILE"
     echo "   Wrote example config to ${CONF_FILE} (chmod 600)."
-    echo "   *** EDIT ${CONF_FILE} and set serverId, token and backendUrl before starting. ***"
+    echo "   *** EDIT ${CONF_FILE}: set hostname (must match inventory ipOrHostname),"
+    echo "       registerSecret, and backendUrl. Token is issued on first start. ***"
 else
     chmod 600 "$CONF_FILE"
     echo "   Existing ${CONF_FILE} left in place (permissions set to 600)."

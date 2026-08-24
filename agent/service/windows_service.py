@@ -22,6 +22,7 @@ import threading
 from agent.config import load_config
 from agent.logging_setup import configure_logging, get_logger
 from agent.main import AgentRunner
+from agent.transport.register import RegistrationError, ensure_registered
 
 _log = get_logger()
 
@@ -74,8 +75,14 @@ if _HAS_PYWIN32:  # pragma: no cover - requires Windows + pywin32
             servicemanager.LogInfoMsg(f"{self._svc_name_} stopped")
 
         def _run(self) -> None:
-            config = load_config(_resolve_config_path())
+            config_path = _resolve_config_path()
+            config = load_config(config_path)
             configure_logging(config.log_file, config.log_level)
+            try:
+                config = ensure_registered(config, config_path)
+            except RegistrationError:
+                _log.exception("registration failed")
+                raise
             stop = threading.Event()
             self._runner = AgentRunner(config, stop_event=stop)
             worker = threading.Thread(target=self._runner.run_forever, daemon=True)

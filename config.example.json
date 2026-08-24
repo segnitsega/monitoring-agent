@@ -1,6 +1,8 @@
 {
-  "serverId": "srv-1029",
-  "token": "REPLACE_WITH_PER_SERVER_TOKEN_ISSUED_AT_REGISTRATION",
+  "hostname": "finance-app.internal.local",
+  "registerSecret": "REPLACE_WITH_SHARED_AGENT_REGISTER_SECRET",
+  "serverId": "",
+  "token": "",
   "backendUrl": "https://portal.example.com",
   "intervalSeconds": 60,
   "timeoutSeconds": 10,

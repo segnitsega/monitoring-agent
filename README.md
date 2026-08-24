@@ -52,15 +52,23 @@ pip install -r requirements-dev.txt
 
 ## Configuration
 
-Copy `config.example.json` to `config.json` and edit it. The file holds a
-secret token — keep it readable only by the service account (the installers do
+Copy `config.example.json` to `config.json` and edit it. The file holds
+secrets — keep it readable only by the service account (the installers do
 this for you: `chmod 600` on Linux, a restrictive ACL on Windows).
+
+On first start, if `token` is empty, the agent `POST`s
+`/api/v1/agent/register` with `registerSecret` and `hostname`, then writes
+the issued `serverId` / `token` back to `config.json`. After that it uses
+`Authorization: Bearer <token>` on `/api/v1/health`. The inventory row must
+already exist (`ipOrHostname` = `hostname`). Re-registering rotates the token.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `serverId` | string | — (required) | Stable server identifier. |
-| `token` | string | — (required) | Per-server bearer token. |
-| `backendUrl` | string | — (required) | Base URL; `/api/v1/health` is appended. |
+| `backendUrl` | string | — (required) | Base URL; `/api/v1/health` and `/api/v1/agent/register` are appended. |
+| `hostname` | string | OS hostname | Must match the portal inventory `ipOrHostname` at register time. |
+| `registerSecret` | string | — (required if no token) | Shared `AGENT_REGISTER_SECRET`; same on every agent. |
+| `serverId` | string | — (issued at register) | Portal server UUID. Required once `token` is set. |
+| `token` | string | — (issued at register) | Per-server bearer token. Empty/placeholder triggers registration. |
 | `intervalSeconds` | int | `60` | Seconds between collection cycles. |
 | `timeoutSeconds` | number | `10` | HTTP request timeout. |
 | `diskPaths` | string[] | `["/"]` / `["C:\\"]` | Mount points to report. |
@@ -160,7 +168,7 @@ pyinstaller build_pyinstaller.spec
 
 ```bash
 sudo ./install_linux.sh ./dist/monitoring-agent
-sudo nano /etc/monitoring-agent/config.json   # set serverId, token, backendUrl
+sudo nano /etc/monitoring-agent/config.json   # set hostname, registerSecret, backendUrl
 sudo systemctl restart monitoring-agent
 journalctl -u monitoring-agent -f
 ```
@@ -173,7 +181,7 @@ and systemd hardening. The retry queue lives under `/var/lib/monitoring-agent`.
 ```powershell
 # From an elevated PowerShell:
 .\install_windows.ps1 -DistDir .\dist
-notepad $env:ProgramData\MonitoringAgent\config.json   # set serverId, token, backendUrl
+notepad $env:ProgramData\MonitoringAgent\config.json   # set hostname, registerSecret, backendUrl
 Restart-Service MonitoringAgent
 Get-Service MonitoringAgent
 ```
@@ -184,10 +192,11 @@ Registers an auto-starting Windows Service that restarts on failure.
 
 ## Security notes
 
-- The token is only ever placed in the request `Authorization` header — it is
-  never logged.
-- `config.json` holds the token and is gitignored; only `config.example.json`
-  (with a placeholder) is committed. The installers restrict its permissions;
+- The per-server token is only ever placed in the request `Authorization`
+  header — it is never logged. The registration secret is only sent in the
+  register body.
+- `config.json` holds secrets and is gitignored; only `config.example.json`
+  (with placeholders) is committed. The installers restrict its permissions;
   the agent warns at startup if the file is group/world-readable.
 - The agent makes only outbound HTTPS requests and reads local metrics/logs.
 
@@ -218,6 +227,7 @@ agent/
     backup.py              # pluggable backup-evidence checkers
   transport/
     sender.py              # HTTPS POST + outcome classification
+    register.py            # first-run POST /api/v1/agent/register
     retry_queue.py         # SQLite offline queue
   service/
     linux_systemd.py       # systemd unit generation/install

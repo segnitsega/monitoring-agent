@@ -22,6 +22,7 @@ from agent.collectors.health import collect_health
 from agent.config import AgentConfig, ConfigError, is_permission_secure, load_config
 from agent.logging_setup import configure_logging, get_logger
 from agent.payload import build_payload
+from agent.transport.register import RegistrationError, ensure_registered
 from agent.transport.retry_queue import RetryQueue
 from agent.transport.sender import Sender, SendOutcome
 
@@ -161,15 +162,27 @@ def main(argv: list[str] | None = None) -> int:
     logger = configure_logging(config.log_file, config.log_level)
     if not is_permission_secure(args.config):
         logger.warning(
-            "config file %s is readable by group/other and holds a token; "
+            "config file %s is readable by group/other and holds secrets; "
             "run 'chmod 600 %s'",
             args.config,
             args.config,
         )
 
     if args.check_config:
-        logger.info("configuration OK (server=%s)", config.server_id)
+        if config.needs_registration:
+            logger.info(
+                "configuration OK (will register on start; hostname=%s)",
+                config.hostname or "(detect at runtime)",
+            )
+        else:
+            logger.info("configuration OK (server=%s)", config.server_id)
         return 0
+
+    try:
+        config = ensure_registered(config, args.config)
+    except RegistrationError as exc:
+        logger.error("registration failed: %s", exc)
+        return 3
 
     runner = AgentRunner(config)
     runner.install_signal_handlers()

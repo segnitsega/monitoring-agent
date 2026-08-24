@@ -1,1 +1,1 @@
-"""Transport layer: HTTP sender and the SQLite-backed offline retry queue."""
+"""Transport layer: HTTP sender, bootstrap registration, and the SQLite retry queue."""

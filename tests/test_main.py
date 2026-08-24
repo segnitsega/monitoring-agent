@@ -96,6 +96,72 @@ def test_cli_check_config_ok(tmp_path, capsys) -> None:
     assert rc == 0
 
 
+def test_cli_check_config_ok_without_token(tmp_path) -> None:
+    cfg_file = tmp_path / "config.json"
+    cfg_file.write_text(
+        '{"registerSecret":"shared-secret","backendUrl":"https://x.example.com",'
+        f'"hostname":"host.example","queuePath":"{tmp_path / "q.db"}","logLevel":"ERROR"}}'
+    )
+    rc = main(["--config", str(cfg_file), "--check-config"])
+    assert rc == 0
+
+
+def test_cli_registers_when_token_missing(tmp_path, monkeypatch) -> None:
+    cfg_file = tmp_path / "config.json"
+    cfg_file.write_text(
+        '{"registerSecret":"shared-secret","backendUrl":"https://x.example.com",'
+        f'"hostname":"host.example","queuePath":"{tmp_path / "q.db"}","logLevel":"ERROR"}}'
+    )
+    provisioned = parse_config(
+        {
+            "serverId": "uuid-1",
+            "token": "issued-token",
+            "backendUrl": "https://x.example.com",
+            "queuePath": str(tmp_path / "q.db"),
+            "logLevel": "ERROR",
+        }
+    )
+    monkeypatch.setattr(main_mod, "ensure_registered", lambda cfg, path: provisioned)
+    seen: dict = {}
+
+    class DummyRunner:
+        def __init__(self, config, **kwargs) -> None:
+            seen["token"] = config.token
+            seen["server_id"] = config.server_id
+
+        def install_signal_handlers(self) -> None:
+            return None
+
+        def run_cycle(self) -> None:
+            return None
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(main_mod, "AgentRunner", DummyRunner)
+    rc = main(["--config", str(cfg_file), "--once"])
+    assert rc == 0
+    assert seen["token"] == "issued-token"
+    assert seen["server_id"] == "uuid-1"
+
+
+def test_cli_registration_failure_returns_3(tmp_path, monkeypatch) -> None:
+    from agent.transport.register import RegistrationError
+
+    cfg_file = tmp_path / "config.json"
+    cfg_file.write_text(
+        '{"registerSecret":"shared-secret","backendUrl":"https://x.example.com",'
+        f'"hostname":"host.example","queuePath":"{tmp_path / "q.db"}","logLevel":"ERROR"}}'
+    )
+
+    def _fail(cfg, path):
+        raise RegistrationError("hostname not in inventory")
+
+    monkeypatch.setattr(main_mod, "ensure_registered", _fail)
+    rc = main(["--config", str(cfg_file), "--once"])
+    assert rc == 3
+
+
 def test_cli_bad_config_returns_2(tmp_path) -> None:
     cfg_file = tmp_path / "bad.json"
     cfg_file.write_text('{"serverId":"srv-1"}')  # missing required fields
