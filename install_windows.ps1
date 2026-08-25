@@ -17,9 +17,19 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$scriptDir = $PSScriptRoot
 
 $agentExe   = Join-Path $DistDir "monitoring-agent.exe"
 $serviceExe = Join-Path $DistDir "monitoring-agent-service.exe"
+
+$configSrc = @(
+    (Join-Path $scriptDir "config.json"),
+    (Join-Path (Get-Location) "config.json")
+) | Where-Object { Test-Path $_ } | Select-Object -First 1
+
+if (-not $configSrc) {
+    Write-Error "config.json not found next to the installer or in the current directory. Copy config.example.json to config.json, fill it in, then re-run the installer."
+}
 
 if (-not (Test-Path $serviceExe)) {
     Write-Error "Service binary not found at '$serviceExe'. Build it first: pyinstaller build_pyinstaller.spec"
@@ -34,11 +44,10 @@ Write-Host ">> Preparing $ConfigDir"
 New-Item -ItemType Directory -Force -Path $ConfigDir | Out-Null
 $configFile = Join-Path $ConfigDir "config.json"
 if (-not (Test-Path $configFile)) {
-    Copy-Item ".\config.example.json" $configFile -Force
+    Copy-Item $configSrc $configFile -Force
     # Restrict the config (it holds a token) to Administrators + SYSTEM.
     icacls $configFile /inheritance:r /grant:r "Administrators:F" "SYSTEM:F" | Out-Null
-    Write-Host "   Wrote example config to $configFile"
-    Write-Warning "   EDIT $configFile: set hostname (inventory ipOrHostname), registerSecret, and backendUrl."
+    Write-Host "   Installed config.json to $configFile"
 } else {
     Write-Host "   Existing $configFile left in place."
 }

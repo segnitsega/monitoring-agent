@@ -32,6 +32,7 @@ def build_unit(
     user: str = SERVICE_USER,
 ) -> str:
     """Render the systemd unit file text."""
+    config_dir = os.path.dirname(config_path) or "/etc/monitoring-agent"
     return f"""[Unit]
 Description=Server health & backup monitoring agent
 After=network-online.target
@@ -50,11 +51,12 @@ StateDirectory={SERVICE_NAME}
 WorkingDirectory={STATE_DIR}
 
 # Hardening: the agent only needs to read metrics and POST them out.
+# Config dir is writable so first-run registration can persist serverId/token.
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
-ReadWritePaths={STATE_DIR}
+ReadWritePaths={STATE_DIR} {config_dir}
 ProtectKernelTunables=true
 ProtectControlGroups=true
 RestrictSUIDSGID=true

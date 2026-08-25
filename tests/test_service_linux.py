@@ -14,6 +14,7 @@ def test_unit_contains_key_directives() -> None:
     # hardening present
     assert "NoNewPrivileges=true" in unit
     assert "ProtectSystem=strict" in unit
+    assert "ReadWritePaths=/var/lib/monitoring-agent /etc/monitoring-agent" in unit
 
 
 def test_unit_defaults() -> None:

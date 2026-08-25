@@ -13,6 +13,7 @@ CONF_DIR="/etc/monitoring-agent"
 CONF_FILE="${CONF_DIR}/config.json"
 STATE_DIR="/var/lib/monitoring-agent"
 UNIT_PATH="/etc/systemd/system/monitoring-agent.service"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 if [[ $EUID -ne 0 ]]; then
     echo "This installer must be run as root (try: sudo $0)" >&2
@@ -35,15 +36,28 @@ install -m 0755 "$BIN_SRC" "$INSTALL_BIN"
 
 echo ">> Preparing ${CONF_DIR}"
 mkdir -p "$CONF_DIR"
+
+CONFIG_SRC=""
+for candidate in "${SCRIPT_DIR}/config.json" "./config.json"; do
+    if [[ -f "$candidate" ]]; then
+        CONFIG_SRC="$candidate"
+        break
+    fi
+done
+if [[ -z "$CONFIG_SRC" ]]; then
+    echo "config.json not found next to the installer or in the current directory." >&2
+    echo "Copy config.example.json to config.json, fill it in, then re-run the installer." >&2
+    exit 1
+fi
+
 if [[ ! -f "$CONF_FILE" ]]; then
-    install -m 0600 ./config.example.json "$CONF_FILE"
-    echo "   Wrote example config to ${CONF_FILE} (chmod 600)."
-    echo "   *** EDIT ${CONF_FILE}: set hostname (must match inventory ipOrHostname),"
-    echo "       registerSecret, and backendUrl. Token is issued on first start. ***"
+    install -m 0600 "$CONFIG_SRC" "$CONF_FILE"
+    echo "   Installed config.json to ${CONF_FILE} (chmod 600)."
 else
     chmod 600 "$CONF_FILE"
     echo "   Existing ${CONF_FILE} left in place (permissions set to 600)."
 fi
+chown "${SVC_USER}:${SVC_USER}" "$CONF_FILE"
 
 echo ">> Preparing state dir ${STATE_DIR}"
 mkdir -p "$STATE_DIR"
@@ -71,7 +85,7 @@ NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
-ReadWritePaths=${STATE_DIR}
+ReadWritePaths=${STATE_DIR} ${CONF_DIR}
 ProtectKernelTunables=true
 ProtectControlGroups=true
 RestrictSUIDSGID=true
