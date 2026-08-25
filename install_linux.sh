@@ -35,7 +35,9 @@ echo ">> Installing binary to ${INSTALL_BIN}"
 install -m 0755 "$BIN_SRC" "$INSTALL_BIN"
 
 echo ">> Preparing ${CONF_DIR}"
-mkdir -p "$CONF_DIR"
+# Own the directory (not only config.json). Registration writes a temp file
+# here then replaces config.json; root-owned 755 caused EACCES on first start.
+install -d -m 0750 -o "${SVC_USER}" -g "${SVC_USER}" "$CONF_DIR"
 
 CONFIG_SRC=""
 for candidate in "${SCRIPT_DIR}/config.json" "./config.json"; do
@@ -51,13 +53,15 @@ if [[ -z "$CONFIG_SRC" ]]; then
 fi
 
 if [[ ! -f "$CONF_FILE" ]]; then
-    install -m 0600 "$CONFIG_SRC" "$CONF_FILE"
-    echo "   Installed config.json to ${CONF_FILE} (chmod 600)."
+    install -m 0600 -o "${SVC_USER}" -g "${SVC_USER}" "$CONFIG_SRC" "$CONF_FILE"
+    echo "   Installed config.json to ${CONF_FILE} (chmod 600, owned by ${SVC_USER})."
 else
     chmod 600 "$CONF_FILE"
+    chown "${SVC_USER}:${SVC_USER}" "$CONF_FILE"
     echo "   Existing ${CONF_FILE} left in place (permissions set to 600)."
 fi
-chown "${SVC_USER}:${SVC_USER}" "$CONF_FILE"
+chmod 0750 "$CONF_DIR"
+chown "${SVC_USER}:${SVC_USER}" "$CONF_DIR"
 
 echo ">> Preparing state dir ${STATE_DIR}"
 mkdir -p "$STATE_DIR"
@@ -101,6 +105,13 @@ systemctl enable --now monitoring-agent.service || {
     echo "Edit ${CONF_FILE} then run: systemctl restart monitoring-agent" >&2
 }
 
+echo
+echo "Before health posts succeed:"
+echo "  1. hostname in config.json must already exist in portal inventory (ipOrHostname)."
+echo "  2. Watch logs: journalctl -u monitoring-agent -f"
+echo "     'hostname not in inventory' → create the server in the portal, then: systemctl restart monitoring-agent"
+echo "     'payload delivered' → agent is reporting."
+echo "     'HTTP 400' → portal rejected the payload shape (backend issue, not install)."
 echo
 echo "Done. Useful commands:"
 echo "  systemctl status monitoring-agent"
