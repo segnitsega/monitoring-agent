@@ -63,13 +63,17 @@ sc.exe failure MonitoringAgent reset= 60 actions= restart/5000/restart/5000/rest
 
 Write-Host ">> Starting service"
 try {
-    & $installedService start
+    Start-Service MonitoringAgent
+    Start-Sleep -Seconds 2
+    $svc = Get-Service MonitoringAgent
+    Write-Host "   Service Status: $($svc.Status)"
 } catch {
-    Write-Warning "Service registered but failed to start — likely config.json still has placeholder values (registerSecret / backendUrl / hostname)."
-    Write-Warning "Edit $configFile then run: Restart-Service MonitoringAgent"
+    Write-Warning "Service registered but failed to start."
+    Write-Warning "Check $ConfigDir\agent.log for details."
 }
 
 Write-Host ""
 Write-Host "Done. Useful commands:"
 Write-Host "  Get-Service MonitoringAgent"
+Write-Host "  Get-Content `"$ConfigDir\agent.log`" -Tail 30"
 Write-Host "  Get-EventLog -LogName Application -Source MonitoringAgent -Newest 20"

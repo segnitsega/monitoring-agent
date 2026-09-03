@@ -181,12 +181,12 @@ and systemd hardening. The retry queue lives under `/var/lib/monitoring-agent`.
 ```powershell
 # From an elevated PowerShell:
 .\install_windows.ps1 -DistDir .\dist
-notepad $env:ProgramData\MonitoringAgent\config.json   # set hostname, registerSecret, backendUrl
-Restart-Service MonitoringAgent
 Get-Service MonitoringAgent
+Get-Content $env:ProgramData\MonitoringAgent\agent.log -Tail 30
 ```
 
-Registers an auto-starting Windows Service that restarts on failure.
+Registers an auto-starting Windows Service that restarts on failure. The service
+writes startup and cycle logs to `%ProgramData%\MonitoringAgent\agent.log`.
 
 ---
 

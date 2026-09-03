@@ -226,9 +226,14 @@ What the installer does:
 - Copies `monitoring-agent-service.exe` (and `monitoring-agent.exe` if present) to **`C:\Program Files\MonitoringAgent\`**.
 - Seeds **`C:\ProgramData\MonitoringAgent\config.json`** from `config.example.json` and restricts its ACL to **Administrators + SYSTEM**.
 - Registers the **`MonitoringAgent`** Windows Service, sets it to **auto-start**, and configures **failure recovery** (restart on crash).
-- Starts the service.
+- Starts the service via `Start-Service` (SCM), then prints the resulting status.
 
-Logs go to the Windows Application Event Log (source `MonitoringAgent`) unless you set a `logFile`.
+The service reports `SERVICE_RUNNING` to the SCM before registration, retries
+config/registration errors instead of exiting, and runs with working directory
+`C:\ProgramData\MonitoringAgent` so a relative `queuePath` does not land in
+`C:\Windows\System32`. Logs go to **`C:\ProgramData\MonitoringAgent\agent.log`**
+(even when `logFile` is `null`) and to the Application Event Log (source
+`MonitoringAgent`).
 
 ### 6.3 Config you must fill in (minimum)
 
@@ -252,7 +257,7 @@ template is `config.example.json`.
 | Config | `/etc/monitoring-agent/config.json` (0600) | `C:\ProgramData\MonitoringAgent\config.json` (ACL: Admin+SYSTEM) |
 | Retry queue (state) | `/var/lib/monitoring-agent/retry_queue.db` | path from `queuePath` in config |
 | Service name | `monitoring-agent` (systemd) | `MonitoringAgent` (SCM) |
-| Logs | `journalctl -u monitoring-agent` | Application Event Log, source `MonitoringAgent` |
+| Logs | `journalctl -u monitoring-agent` | `C:\ProgramData\MonitoringAgent\agent.log` (+ Application Event Log, source `MonitoringAgent`) |
 
 ---
 

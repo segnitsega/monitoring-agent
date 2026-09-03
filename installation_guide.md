@@ -62,33 +62,82 @@ Removes the service, binary, config, retry queue, and service user.
 
 ## Windows
 
-Copy the repo onto the Windows PC. Python 3.10+. **Administrator** PowerShell,
-from the repo folder:
+Copy the repository onto the Windows PC. Requires Python 3.10+ (only for building). Run an **Administrator** PowerShell session from the repo folder:
+
+### 1. Build and Install
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\activate
 pip install -r requirements-dev.txt
 pyinstaller build_pyinstaller.spec
+
 Set-ExecutionPolicy -Scope Process Bypass
 .\install_windows.ps1 -DistDir .\dist
 ```
 
+### 2. Verify Service Status & Registration
+
+Check service state (should be `Running`):
+
 ```powershell
 Get-Service MonitoringAgent
-Get-WinEvent -LogName Application -ProviderName MonitoringAgent -MaxEvents 20
+sc.exe query MonitoringAgent
 ```
 
-Older Windows: `Get-EventLog -LogName Application -Source MonitoringAgent -Newest 20`
+Verify that credentials (`serverId` and `token`) were automatically issued and saved to `config.json`:
 
 ```powershell
-Stop-Service MonitoringAgent
-& "$env:ProgramFiles\MonitoringAgent\monitoring-agent-service.exe" remove
+Get-Content "$env:ProgramData\MonitoringAgent\config.json"
+```
+
+Inspect the service log for registration and ongoing metric collection cycles:
+
+```powershell
+Get-Content "$env:ProgramData\MonitoringAgent\agent.log" -Tail 30
+```
+
+Windows Event Log (optional):
+
+```powershell
+Get-WinEvent -LogName Application -ProviderName MonitoringAgent -MaxEvents 20
+# Older Windows:
+Get-EventLog -LogName Application -Source MonitoringAgent -Newest 20
+```
+
+### 3. Upgrading / Clean Reinstall
+
+To update an existing installation with a newly built binary:
+
+```powershell
+# Stop and remove existing service
+Stop-Service MonitoringAgent -ErrorAction SilentlyContinue
+if (Test-Path "$env:ProgramFiles\MonitoringAgent\monitoring-agent-service.exe") {
+    & "$env:ProgramFiles\MonitoringAgent\monitoring-agent-service.exe" remove
+}
+
+# (Optional) Remove saved config if you want to test registration from scratch:
+# Remove-Item -Path "$env:ProgramData\MonitoringAgent\config.json" -Force -ErrorAction SilentlyContinue
+
+# Re-install and start
+.\install_windows.ps1 -DistDir .\dist
+Start-Service MonitoringAgent
+```
+
+### 4. Uninstall
+
+To completely remove the service, binaries, and data:
+
+```powershell
+Stop-Service MonitoringAgent -ErrorAction SilentlyContinue
+if (Test-Path "$env:ProgramFiles\MonitoringAgent\monitoring-agent-service.exe") {
+    & "$env:ProgramFiles\MonitoringAgent\monitoring-agent-service.exe" remove
+}
 Remove-Item -Recurse -Force "$env:ProgramFiles\MonitoringAgent"
 Remove-Item -Recurse -Force "$env:ProgramData\MonitoringAgent"
 ```
 
-If the exe is already gone:
+If the service binary is missing or broken, force-delete the service:
 
 ```powershell
 sc.exe stop MonitoringAgent

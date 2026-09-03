@@ -18,8 +18,9 @@ from __future__ import annotations
 import os
 import sys
 import threading
+from dataclasses import replace
 
-from agent.config import load_config
+from agent.config import AgentConfig, ConfigError, load_config
 from agent.logging_setup import configure_logging, get_logger
 from agent.main import AgentRunner
 from agent.transport.register import RegistrationError, ensure_registered
@@ -67,31 +68,122 @@ if _HAS_PYWIN32:  # pragma: no cover - requires Windows + pywin32
 
         def SvcDoRun(self) -> None:
             servicemanager.LogInfoMsg(f"{self._svc_name_} starting")
+            self.ReportServiceStatus(win32service.SERVICE_START_PENDING)
             try:
                 self._run()
             except Exception as exc:  # noqa: BLE001
                 servicemanager.LogErrorMsg(f"{self._svc_name_} failed: {exc}")
                 raise
+            finally:
+                self.ReportServiceStatus(win32service.SERVICE_STOPPED)
             servicemanager.LogInfoMsg(f"{self._svc_name_} stopped")
 
         def _run(self) -> None:
-            config_path = _resolve_config_path()
-            config = load_config(config_path)
-            configure_logging(config.log_file, config.log_level)
+            program_data = r"C:\ProgramData\MonitoringAgent"
             try:
-                config = ensure_registered(config, config_path)
-            except RegistrationError:
-                _log.exception("registration failed")
-                raise
-            stop = threading.Event()
-            self._runner = AgentRunner(config, stop_event=stop)
+                os.makedirs(program_data, exist_ok=True)
+                os.chdir(program_data)
+            except OSError:
+                pass
+
+            config_path = _resolve_config_path()
+            default_log_file = os.path.join(program_data, "agent.log")
+
+            # Setup initial logging to safe file so all startup logs are captured
+            log_file = default_log_file
+            try:
+                if os.path.exists(config_path):
+                    cfg_preview = load_config(config_path)
+                    log_file = cfg_preview.log_file or default_log_file
+                    configure_logging(log_file, cfg_preview.log_level)
+                else:
+                    configure_logging(log_file, "INFO")
+            except Exception:
+                configure_logging(log_file, "INFO")
+
+            _log.info("MonitoringAgent Windows Service initialization starting")
+
+            # Report SERVICE_RUNNING so Windows SCM knows the service started cleanly
+            self.ReportServiceStatus(win32service.SERVICE_RUNNING)
+
+            stop_event = threading.Event()
+
+            def _is_stop_requested(timeout_sec: float) -> bool:
+                res = win32event.WaitForSingleObject(self._scm_stop, int(timeout_sec * 1000))
+                return res == win32event.WAIT_OBJECT_0
+
+            config: AgentConfig | None = None
+            while not _is_stop_requested(0):
+                try:
+                    config = load_config(config_path)
+
+                    # Ensure relative queuePath resolves relative to ProgramData
+                    if config.queue_path and not os.path.isabs(config.queue_path):
+                        abs_queue = os.path.join(program_data, config.queue_path)
+                        config = replace(config, queue_path=abs_queue)
+
+                    # Re-configure logging with validated config settings
+                    active_log_file = config.log_file or default_log_file
+                    configure_logging(active_log_file, config.log_level)
+
+                    if config.needs_registration:
+                        try:
+                            config = ensure_registered(config, config_path)
+                            _log.info("Registration successful for serverId=%s", config.server_id)
+                        except (RegistrationError, ConfigError) as reg_exc:
+                            _log.warning(
+                                "Agent registration required but failed: %s. Retrying in 10s...",
+                                reg_exc,
+                            )
+                            servicemanager.LogWarningMsg(
+                                f"MonitoringAgent registration failed: {reg_exc}. Retrying in 10s..."
+                            )
+                            if _is_stop_requested(10):
+                                break
+                            continue
+                        except Exception as exc:
+                            _log.exception("Unexpected error during registration: %s. Retrying in 10s...", exc)
+                            if _is_stop_requested(10):
+                                break
+                            continue
+
+                    # Successfully loaded and registered config
+                    break
+
+                except ConfigError as cfg_exc:
+                    _log.error("Invalid or missing config at %s: %s. Retrying in 10s...", config_path, cfg_exc)
+                    servicemanager.LogErrorMsg(f"MonitoringAgent config error: {cfg_exc}")
+                    if _is_stop_requested(10):
+                        break
+                except Exception as exc:
+                    _log.exception("Unexpected startup error: %s. Retrying in 10s...", exc)
+                    if _is_stop_requested(10):
+                        break
+
+            if config is None or _is_stop_requested(0):
+                _log.info("MonitoringAgent service received stop request before starting monitoring loop")
+                return
+
+            _log.info(
+                "Starting AgentRunner monitoring loop: serverId=%s endpoint=%s interval=%ds",
+                config.server_id,
+                config.health_endpoint,
+                config.interval_seconds,
+            )
+            self._runner = AgentRunner(config, stop_event=stop_event)
             worker = threading.Thread(target=self._runner.run_forever, daemon=True)
             worker.start()
-            # Block until the SCM asks us to stop.
+
+            # Wait until SCM sends stop signal
             win32event.WaitForSingleObject(self._scm_stop, win32event.INFINITE)
-            stop.set()
+            _log.info("MonitoringAgent SCM stop signal received; shutting down runner...")
+            stop_event.set()
+            if self._runner is not None:
+                self._runner.stop()
             worker.join(timeout=30)
-            self._runner.close()
+            if self._runner is not None:
+                self._runner.close()
+            _log.info("MonitoringAgent service shutdown complete")
 
 else:
     MonitoringAgentService = None  # type: ignore[assignment]

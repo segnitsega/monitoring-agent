@@ -6,9 +6,11 @@ import agent.service.windows_service as ws
 
 
 def test_module_imports_without_pywin32() -> None:
-    # On the Linux test host pywin32 is absent; the module must still import.
-    assert ws._HAS_PYWIN32 is False
-    assert ws.MonitoringAgentService is None
+    # Verify module imports safely regardless of pywin32 availability.
+    if not ws._HAS_PYWIN32:
+        assert ws.MonitoringAgentService is None
+    else:
+        assert ws.MonitoringAgentService is not None
     assert isinstance(ws.DEFAULT_CONFIG_PATH, str)
 
 

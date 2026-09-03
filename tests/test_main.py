@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 import agent.main as main_mod
@@ -89,8 +91,15 @@ def test_run_cycle_builds_and_sends(tmp_path, monkeypatch) -> None:
 def test_cli_check_config_ok(tmp_path, capsys) -> None:
     cfg_file = tmp_path / "config.json"
     cfg_file.write_text(
-        '{"serverId":"srv-1","token":"real","backendUrl":"https://x.example.com",'
-        f'"queuePath":"{tmp_path / "q.db"}","logLevel":"ERROR"}}'
+        json.dumps(
+            {
+                "serverId": "srv-1",
+                "token": "real",
+                "backendUrl": "https://x.example.com",
+                "queuePath": (tmp_path / "q.db").as_posix(),
+                "logLevel": "ERROR",
+            }
+        )
     )
     rc = main(["--config", str(cfg_file), "--check-config"])
     assert rc == 0
@@ -99,8 +108,15 @@ def test_cli_check_config_ok(tmp_path, capsys) -> None:
 def test_cli_check_config_ok_without_token(tmp_path) -> None:
     cfg_file = tmp_path / "config.json"
     cfg_file.write_text(
-        '{"registerSecret":"shared-secret","backendUrl":"https://x.example.com",'
-        f'"hostname":"host.example","queuePath":"{tmp_path / "q.db"}","logLevel":"ERROR"}}'
+        json.dumps(
+            {
+                "registerSecret": "shared-secret",
+                "backendUrl": "https://x.example.com",
+                "hostname": "host.example",
+                "queuePath": (tmp_path / "q.db").as_posix(),
+                "logLevel": "ERROR",
+            }
+        )
     )
     rc = main(["--config", str(cfg_file), "--check-config"])
     assert rc == 0
@@ -109,8 +125,15 @@ def test_cli_check_config_ok_without_token(tmp_path) -> None:
 def test_cli_registers_when_token_missing(tmp_path, monkeypatch) -> None:
     cfg_file = tmp_path / "config.json"
     cfg_file.write_text(
-        '{"registerSecret":"shared-secret","backendUrl":"https://x.example.com",'
-        f'"hostname":"host.example","queuePath":"{tmp_path / "q.db"}","logLevel":"ERROR"}}'
+        json.dumps(
+            {
+                "registerSecret": "shared-secret",
+                "backendUrl": "https://x.example.com",
+                "hostname": "host.example",
+                "queuePath": (tmp_path / "q.db").as_posix(),
+                "logLevel": "ERROR",
+            }
+        )
     )
     provisioned = parse_config(
         {
@@ -150,8 +173,15 @@ def test_cli_registration_failure_returns_3(tmp_path, monkeypatch) -> None:
 
     cfg_file = tmp_path / "config.json"
     cfg_file.write_text(
-        '{"registerSecret":"shared-secret","backendUrl":"https://x.example.com",'
-        f'"hostname":"host.example","queuePath":"{tmp_path / "q.db"}","logLevel":"ERROR"}}'
+        json.dumps(
+            {
+                "registerSecret": "shared-secret",
+                "backendUrl": "https://x.example.com",
+                "hostname": "host.example",
+                "queuePath": (tmp_path / "q.db").as_posix(),
+                "logLevel": "ERROR",
+            }
+        )
     )
 
     def _fail(cfg, path):
